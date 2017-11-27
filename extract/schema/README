@@ -1,27 +1,22 @@
-# https://github.com/appannie/aa/blob/master/estimation/vans/README.md
-
-INTERFACE = {
+{
     "alias": "story",
-    "volume": "mb",
-    "retention": "-1",
-    "definition": {
-        "namespace": "ss.story.v1",
+    "volume": "mb",  # data size per granularity
+    "retention": "",
+    "schema": {
+        "namespace": "{owner}.{alias}.{version}", # version must be v1, v2, v3...
         "type": "record",
         "name": "Story",
         "aliases": ["story"],
         "fields": [
-            {"name": "data_type", "type": {"type": "enum", "name": "dtype", "symbols": ["dimension"]}},
-            {"name": "data_granularity", "type": {"type": "enum", "name": "dgranularity", "symbols": ["daily"]}},
-            {"name": "device_code", "default": "iphone", "type": [
+            {"name": "data_type", "type": {"type": "enum", "name": "type", "symbols": ["dimension"}},
+            {"name": "data_granularity", "type": {"type": "enum", "name": "granularity", "symbols": ["daily"}},
+            {"name": "id", "type": "long"},
+            {"name": "device_code", "default": 'iphone', "type": [
                 {"type": "enum", "name": "device", "symbols": ["iphone", "ipad"]}, "null"]},
             {"name": "market_code", "default": 'apple-store',
                 "type": [{"type": "enum", "name": "market", "symbols": ["apple-store"]}, "null"]},
             {"name": "country_code", "type": "string"},
-            {"name": "year", "type": "int"},
-            {"name": "month", "type": "int"},
-            {"name": "day", "type": "int"},
-            {"name": "hour", "type": ["null"]},
-            {"name": "id", "type": "long"},
+            {"name": "date", "type": "string"},
             {"name": "url", "type": "string"},
             {"name": "position", "type": "int"},
             {"name": "creative_urls", "type": ["null", {"type": "array", "items": "string"}]},
