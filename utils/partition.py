@@ -6,9 +6,7 @@ FIELDS = ["data_type", "data_granularity", "year", "month", "day", "hour", "mark
           "device_code", "country_code", "category_id", "ad_platform_id"]
 
 
-def root(schema, operation, format):
+def root(schema, operation, identifier, format):
     prefix = schema["definition"]["namespace"].replace(".", "/")
     operation_time = datetime.datetime.today().strftime('%Y%m%d%H%M%S')
-    return "{prefix}/{operation}/{format}/{operation_time}".format(prefix=prefix,
-                                                                   format=format,
-                                                                   operation=operation, operation_time=operation_time)
+    return "{prefix}/{operation}/{operation_time}-{identifier}.{format}".format(prefix=prefix, identifier=identifier, format=format, operation=operation, operation_time=operation_time)

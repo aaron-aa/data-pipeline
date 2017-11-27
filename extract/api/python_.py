@@ -43,12 +43,11 @@ def insert(schema_alias, data):
         writer.close()
 
         # 1. ***put file***
-        # 0    ss/story/v1/add/avro/20171126170538/_SUCCESS
-        # 1856 ss/story/v1/add/avro/20171126170538/datapipeline-06a4c3e299314a56dcb2a01f05083c6c
-        key = "{root}/{identifier}".format(root=root(schema_, "insert", "avro"), identifier=identifier)
+        # 1856 ss/story/v1/insert/20171126170538-06a4c3e299314a56dcb2a01f05083c6c.avro
+        key = root(schema_, "insert", identifier, "avro")
         retry(put, ("aaron-s3-poc", key, open(f.name, "rb")))
-        success_key = "/".join(("/".join(key.split("/")[:-1]), "_SUCCESS"))
-        retry(put, ("aaron-s3-poc", success_key, ""))
+        # success_key = "/".join(("/".join(key.split("/")[:-1]), "_SUCCESS"))
+        # retry(put, ("aaron-s3-poc", success_key, ""))
 
         # 2. *** update meta ***
         # 3. *** trigger event***
@@ -98,4 +97,4 @@ if __name__ == '__main__':
         },
         "raw_data": ""
     }]
-    add("story", data)
+    insert("story", data)
