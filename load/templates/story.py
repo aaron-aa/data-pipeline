@@ -1,4 +1,5 @@
 INTERFACE = {
+    "partition": [""],
     "definition": {
         "template": "int-ss-featured-story-*",
         "settings": {

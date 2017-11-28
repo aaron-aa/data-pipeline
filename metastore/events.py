@@ -7,13 +7,13 @@ class S3Event(object):
            "bucket": "prod.appannie.int.data.pipeline.metastore",
            "prefix": "events/",
            "postfix": "EVENT",
-           "pattern": "events/{?P<eventtype>.+}/{?P<namespace>.+}/{?P<manipulation>.+}/{?P<timestamp>.+}/EVENT"
+           "pattern": "events/{?P<eventtype>.+}/{?P<namespace>.+}/{?P<manipulation>.+}/{?P<identifier>.+}/EVENT"
         }
 
         eventtype:
         TRANSFORM
         LOAD
-        OPERATOR
+        OPERATOR？
 
         manipulation:
         INSERT
