@@ -8,5 +8,6 @@ def get(alias, operation):
     return import_module('extract.interfaces.{}'.format(alias)).INTERFACE["operations"][operation]
 
 
-def dummy_data(alias):
-    return import_module('extract.interfaces.{}'.format(alias)).DUMMY_DATA
+def dummy_data(alias, operation):
+    return getattr(import_module('extract.interfaces.{}'.format(alias)),
+                   "{}_DUMMY_DATA".format(operation.upper()))

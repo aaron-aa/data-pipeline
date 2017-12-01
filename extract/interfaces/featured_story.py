@@ -5,13 +5,15 @@ INTERFACE = {
     "operations": {
         "insert": {
             "partition_fields": ["data_granularity", "date", "market_code", "device_code", "country_code"],
-            "volume": "mb",
-            "retention": "-1",
+            "volume": "mb",  # Size per granularity
+            "retention_period": "-1",  # like 24months etc.
             "schema": {
-                "namespace": "ss.featured_story.v1.insert",
+                "namespace": "ss.featured_story.v1",
                 "type": "record",
                 "name": "FeaturedStory",
                 "fields": [
+                    {"name": "data_types", "type": {"type": "array", "items": {
+                        "type": "enum", "name": "dtype", "symbols": ["dimensions", "metrics", "facts"]}}},
                     {"name": "data_name", "type": "string", "default": "featured_story"},
                     {"name": "data_granularity", "type": {"type": "enum",
                                                           "name": "dgranularity", "symbols": ["daily"]}},
@@ -39,9 +41,9 @@ INTERFACE = {
         "delete": {
             "partition_fields": ["data_granularity", "date", "market_code", "device_code", "country_code"],
             "schema": {
-                "namespace": "ss.featured_story.v1.delete",
+                "namespace": "ss.featured_story.v1",
                 "type": "record",
-                "name": "FeaturedStory",
+                "name": "Where",
                 "fields": [
                     {"name": "data_name", "type": "string", "default": "featured_story"},
                     {"name": "data_granularity", "type": {"type": "enum",
@@ -52,22 +54,90 @@ INTERFACE = {
                      "type": {"type": "enum", "name": "market", "symbols": ["apple-store"]}},
                     {"name": "date", "type": "string"},
                     {"name": "country_code", "type": "string"},
-                    {"name": "featured_story_id", "type": "long"}
+                    {"name": "featured_story_id", "type": ["null", "long"]}
                 ]
             }
-        }
+        },
+        "update": {
+            "partition_fields": ["data_granularity", "date", "market_code", "device_code", "country_code"],
+            "schema": {
+                "namespace": "ss.featured_story.v1",
+                "type": "record",
+                "name": "FeaturedStoryUpdate",
+                "fields": [
+                    {
+                        "name": "where",
+                        "doc": "filters that define the data would be updated",
+                        "type": {
+                            "type": "record",
+                            "name": "items",
+                            "fields": [
+                                {"name": "data_name", "type": "string", "default": "featured_story"},
+                                {"name": "data_granularity", "type": {"type": "enum",
+                                                                      "name": "dgranularity", "symbols": ["daily"]}},
+                                {"name": "device_code", "default": "iphone",
+                                 "type": {"type": "enum", "name": "device", "symbols": ["iphone", "ipad"]}},
+                                {"name": "market_code", "default": "apple-store",
+                                 "type": {"type": "enum", "name": "market", "symbols": ["apple-store"]}},
+                                {"name": "date", "type": "string"},
+                                {"name": "country_code", "type": "string"},
+                                {"name": "featured_story_id", "type": ["null", "long"]}
+                            ]
+                        }
+                    },
+                    {
+                        "name": "set",
+                        "doc": "fields that define the target field and target value",
+                        "type": {
+                            "type": "record",
+                            "name": "items",
+                            "fields": [
+                                {"name": "target_field", "type": {"type": "enum", "name": "fname",
+                                                                  "symbols": ["creative_urls", "product_ids", "label",
+                                                                              "head", "description", "display_style"]}},
+                                {"name": "target_value", "type": ["null", "string",
+                                                                  {"type": "array", "items": "string"},
+                                                                  {"type": "map", "values": "string"}]}
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
     }
 }
 
 
+DELETE_DUMMY_DATA = [
+    {
+        "data_name": "featured_story",
+        "data_granularity": "daily",
+        "market_code": "apple-store",
+        "device_code": "iphone",
+        "country_code": u"US",
+        "date": "2017-11-30"
+    },
+    {
+        "data_name": "featured_story",
+        "data_granularity": "daily",
+        "market_code": "apple-store",
+        "device_code": "iphone",
+        "country_code": u"JP",
+        "date": "2017-11-30",
+        "featured_story_id": 1298971915
+    }
+]
+
+
 # you could provide records here for test
-DUMMY_DATA = [{
+INSERT_DUMMY_DATA = [{
+    "data_types": ["metrics", "dimensions"],
     "data_name": "featured_story",
     "data_granularity": "daily",
     "market_code": "apple-store",
     "device_code": "iphone",
     "country_code": u"US",
-    "date": "2017-11-31",
+    "date": "2017-11-30",
     "featured_story_id": 1298971998,
     "url": u"https://itunes.apple.com/cn/story/id1298971998",
     "rank": 1,
@@ -75,12 +145,13 @@ DUMMY_DATA = [{
     "raw_data": "",
     "svg": "demo svg"
 }, {
+    "data_types": ["metrics", "dimensions"],
     "data_name": "featured_story",
     "data_granularity": "daily",
     "market_code": "apple-store",
     "device_code": "iphone",
     "country_code": u"JP",
-    "date": "2017-11-31",
+    "date": "2017-11-30",
     "featured_story_id": 1298971915,
     "url": u"https://itunes.apple.com/cn/story/id1298971915",
     "rank": 1,
