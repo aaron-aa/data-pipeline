@@ -1,0 +1,15 @@
+*.pyc
+*.pyo
+*.log
+*.bak
+*.js.bak
+*.css.bak
+*.pid
+.*.swp
+*~
+pre-commit
+.DS_Store
+.coverage
+.cache
+.project
+.pydevproject

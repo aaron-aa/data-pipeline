@@ -78,6 +78,10 @@ def _s3key(unamespace):
     return "s3a://{}/{}/{}".format(BUCKET, ROOT, unamespace)
 
 
+def _s3key_for_python(unamespace):
+    return "{}/{}".format(ROOT, unamespace)
+
+
 def _temp_s3key(identifier, manipulation, unamespace):
     return "s3a://{}/{}".format(BUCKET, _temp_s3key_for_boto(identifier, manipulation, unamespace))
 
@@ -157,6 +161,7 @@ def _clean_temp_s3_files(identifier, manipulation, unamespace):
 
 
 def _mv_s3_files(identifier, manipulation, unamespace, group):
+    # delete existed keys
     source_keys = ["{}/{}".format(ROOT, unamespace)]
     for c, v in zip(PARTITION_COLUMNS, group):
         if v == None:
@@ -167,9 +172,12 @@ def _mv_s3_files(identifier, manipulation, unamespace, group):
     for from_key in list(BUCKET, prefix):
         retry(delete, (BUCKET, from_key))
 
+    # move from temp to target
     temp_s3_key = _temp_s3key_for_boto(identifier, manipulation, unamespace)
+    start = len(temp_s3_key.split("/"))
+    s3_key = _s3key_for_python(unamespace)
     for from_key in list(BUCKET, temp_s3_key):
-        to_key = "/".join(from_key.split("/")[len(temp_s3_key.split("/")):])
+        to_key = "{}/{}".format(s3_key, "/".join(from_key.split("/")[start:]))
         retry(rename, (BUCKET, from_key, to_key))
 
 
