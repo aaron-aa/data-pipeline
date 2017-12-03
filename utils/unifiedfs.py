@@ -125,7 +125,7 @@ def _uupdate(update_df, namespace, identifier):
 
     for (group, rows) in partition_grouped_rows:
         print group, rows
-        files_df = spark.read.parquet(_s3key(namespace))
+        files_df = spark.read.parquet(_s3key(namespace)).where(col("delete_id").isNull())
         ordered_fields = [x[0] for x in files_df.dtypes]
         for c, v in zip(PARTITION_COLUMNS, group):
             if v == None:
@@ -151,6 +151,10 @@ def _uupdate(update_df, namespace, identifier):
             matched_df = _update_fields(matched_df, target_fields, target_values)
             result_df = unmatched_df.union(matched_df)
 
+        if len(result_df.take(1)) == 0:
+            # Nothing to update
+            continue
+
         result_df = result_df.select(ordered_fields)
         _clean_temp_s3_files(identifier, UPDATE, namespace)
         result_df.write.mode("append").parquet(_temp_s3key(identifier, UPDATE, namespace),
@@ -174,7 +178,7 @@ def _udelete(where_df, namespace, identifier):
 
     for (group, rows) in partition_grouped_rows:
         print group, rows
-        files_df = spark.read.parquet(_s3key(namespace))
+        files_df = spark.read.parquet(_s3key(namespace)).where(col("delete_id").isNull())
         ordered_fields = [x[0] for x in files_df.dtypes]
         for c, v in zip(PARTITION_COLUMNS, group):
             if v == None:
@@ -198,8 +202,12 @@ def _udelete(where_df, namespace, identifier):
             matched_df = _complete_identifiers(matched_df, delete_identifier=identifier)
             result_df = unmatched_df.union(matched_df)
 
+        if len(result_df.take(1)) == 0:
+            # Nothing to delete
+            continue
+
         result_df = result_df.select(ordered_fields)
-        _clean_temp_s3_files(identifier, UPDATE, namespace)
+        _clean_temp_s3_files(identifier, DELETE, namespace)
         result_df.write.mode("append").parquet(_temp_s3key(identifier, DELETE, namespace),
                                                partitionBy=partition_columns,
                                                compression="gzip")
