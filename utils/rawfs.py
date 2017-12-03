@@ -6,6 +6,7 @@ from itertools import groupby
 
 from metastore.event import S3
 from metastore.event_type import TRANSFORM
+from metastore.manipulation import UPDATE
 
 from utils.retry import retry
 from utils.s3 import put
@@ -13,6 +14,16 @@ from utils.file_ import Temp
 from utils.avro_ import write
 from utils.siganature import datasign
 from utils.identifier import ID
+
+PARTITION_FIELDS = [
+    "data_granularity",
+    "date",
+    "market_code",
+    "ad_platform_id",
+    "device_code",
+    "country_code",
+    "region_code"
+]
 
 
 class RawDataFS(object):
@@ -26,7 +37,7 @@ class RawDataFS(object):
 
         self.interface = interface
         self.schema = interface["schema"]
-        self.namespace = self.schema["namespace"]
+        self.namespace = self.schema.namespace
 
         self.data = data
         self.signature = datasign(data)
@@ -35,15 +46,21 @@ class RawDataFS(object):
         self._template()
 
     def _template(self):
-        pfield_names = self.interface['partition_fields']
-        grouped_data = groupby(self.data, key=lambda x: [x.get(y) for y in pfield_names])
+        if self.manipulation == UPDATE:
+            grouped_data = groupby(self.data, key=lambda x: [x['where'].get(
+                y, '__DEFAULT_PARTITION__') for y in PARTITION_FIELDS])
+        else:
+            grouped_data = groupby(self.data, key=lambda x:
+                                   [x.get(y, '__DEFAULT_PARTITION__') for y in PARTITION_FIELDS])
 
         key_prefix = self._key_prefix()
         for k, v in grouped_data:
-            partition_fields = zip(pfield_names, k)
+            partition_fields = zip(PARTITION_FIELDS, k)
+            print k, v, partition_fields
             s3key = key_prefix + self._key_postfix(partition_fields)
             # 1. ***put file***
-            with Temp(s3key) as f:
+            local_file = s3key.split("data_granularity")[0]
+            with Temp(local_file) as f:
                 write(self.schema, f, v)
                 retry(put, (self.BUCKET, s3key, open(f.name, "rb")))
         # 2. *** update meta ***

@@ -20,15 +20,15 @@ PARTITION_FIELDS = [
     ("data_granularity", StringType),
     ("date", StringType),
     ("market_code", StringType),
-    ("ad_platform_id", StringType),
+    ("ad_platform_id", IntegerType),
     ("os_code", StringType),
     ("device_code", StringType),
     ("device_species_code", StringType),
     ("manufacture_code", StringType),
     ("country_code", StringType),
     ("region_code", StringType),
-    ("unified_category_id", StringType),
-    ("category_id", StringType)
+    ("unified_category_id", IntegerType),
+    ("category_id", IntegerType)
 ]
 PARTITION_COLUMNS = [x[0] for x in PARTITION_FIELDS]
 
@@ -68,7 +68,7 @@ def _complete_identifiers(df, insert_identifier=None, delete_identifier=None, up
             # really delete happened, and we only record first delete time
             temp = '_{}'.format(identifier_name)
             df = df.withColumn(temp,
-                               when(col(identifier_name).isNull(), identifier).otherwise(col(identifier_name)))\
+                               when(col(identifier_name).isNull(), lit(identifier).cast(LongType())).otherwise(col(identifier_name)))\
                 .drop(identifier_name)\
                 .withColumnRenamed(temp, identifier_name)
     return df
@@ -95,12 +95,72 @@ def _uinsert(df, namespace, identifier):
     df = _complete_identifiers(df, insert_identifier=identifier, delete_identifier=None, update_identifier=None)
     df.write.mode("append").parquet(_s3key(namespace),
                                     partitionBy=PARTITION_COLUMNS, compression="gzip")
-    df.show()
     return df
 
 
 def _partition_values(r):
     return tuple([r[x] for x in PARTITION_COLUMNS])
+
+
+def _update_fields(df, target_fields, target_values):
+    types = dict([(f.name, f.dataType) for f in df.schema.fields])
+    for f in target_fields:
+        df = df.drop(f).withColumn(f, lit(target_values[f]).cast(types[f]))
+    return df
+
+
+def _uupdate(update_df, namespace, identifier):
+    where_df = update_df.select("where.*")
+    where_df = _complete_dimensions(where_df)
+    # group is to locate files
+    partition_grouped_rows = where_df.rdd.map(lambda row: (_partition_values(row), row))\
+        .aggregateByKey([], _merge_agg_value, _merge_agg_partition, numPartitions=1)\
+        .collect()
+    # non_partition_columns is to locate matched rows based on above files
+    non_partition_columns = [x[0] for x in where_df.dtypes if x[0] not in PARTITION_COLUMNS]
+
+    target_fields = update_df.select("set.*").collect()[0].asDict()["fields"]
+    print target_fields
+    target_values = update_df.select("value.*").collect()[0].asDict()
+
+    for (group, rows) in partition_grouped_rows:
+        print group, rows
+        files_df = spark.read.parquet(_s3key(namespace))
+        ordered_fields = [x[0] for x in files_df.dtypes]
+        for c, v in zip(PARTITION_COLUMNS, group):
+            if v == None:
+                files_df = files_df.where(col(c).isNull())
+            else:
+                where = "{}={}{}{}".format(c, "'" if isinstance(v, basestring) else "",
+                                           v, "'" if isinstance(v, basestring) else "")
+                files_df = files_df.where(where)
+
+        unmatched_df = matched_df = files_df
+        for c in non_partition_columns:
+            in_ = set(map(lambda r: r[c], rows))
+            if in_ == {None}:
+                continue
+            matched_df = matched_df.where(col(c).isin(in_))
+            unmatched_df = unmatched_df.where(~ col(c).isin(in_))
+
+        if matched_df is matched_df:
+            result_df = _complete_identifiers(files_df, update_identifier=identifier)
+            result_df = _update_fields(result_df, target_fields, target_values)
+        else:
+            matched_df = _complete_identifiers(matched_df, update_identifier=identifier)
+            matched_df = _update_fields(matched_df, target_fields, target_values)
+            result_df = unmatched_df.union(matched_df)
+
+        result_df = result_df.select(ordered_fields)
+        _clean_temp_s3_files(identifier, UPDATE, namespace)
+        result_df.write.mode("append").parquet(_temp_s3key(identifier, UPDATE, namespace),
+                                               partitionBy=partition_columns,
+                                               compression="gzip")
+        _rm_s3_files(identifier, UPDATE, namespace, group)
+        spark.read.parquet(_temp_s3key(identifier, UPDATE, namespace))\
+            .write.mode("append").parquet(_s3key(namespace),
+                                          partitionBy=partition_columns,
+                                          compression="gzip")
 
 
 def _udelete(where_df, namespace, identifier):
@@ -115,7 +175,7 @@ def _udelete(where_df, namespace, identifier):
     for (group, rows) in partition_grouped_rows:
         print group, rows
         files_df = spark.read.parquet(_s3key(namespace))
-        files_df.show(truncate=False)
+        ordered_fields = [x[0] for x in files_df.dtypes]
         for c, v in zip(PARTITION_COLUMNS, group):
             if v == None:
                 files_df = files_df.where(col(c).isNull())
@@ -123,8 +183,6 @@ def _udelete(where_df, namespace, identifier):
                 where = "{}={}{}{}".format(c, "'" if isinstance(v, basestring) else "",
                                            v, "'" if isinstance(v, basestring) else "")
                 files_df = files_df.where(where)
-        print "*" * 20, "files_df"
-        files_df.show(truncate=True)
 
         unmatched_df = matched_df = files_df
         for c in non_partition_columns:
@@ -138,20 +196,18 @@ def _udelete(where_df, namespace, identifier):
             result_df = _complete_identifiers(files_df, delete_identifier=identifier)
         else:
             matched_df = _complete_identifiers(matched_df, delete_identifier=identifier)
-            print "*" * 20, "matched_df"
-            matched_df.show(truncate=True)
-            print "*" * 20, "unmatched_df"
-            unmatched_df.show(truncate=True)
             result_df = unmatched_df.union(matched_df)
-            result_df.persist(StorageLevel.MEMORY_AND_DISK)
-        print "*" * 20, "result_df"
-        result_df.show(truncate=True)
 
-        _clean_temp_s3_files(identifier, DELETE, namespace)
+        result_df = result_df.select(ordered_fields)
+        _clean_temp_s3_files(identifier, UPDATE, namespace)
         result_df.write.mode("append").parquet(_temp_s3key(identifier, DELETE, namespace),
                                                partitionBy=partition_columns,
                                                compression="gzip")
-        _mv_s3_files(identifier, DELETE, namespace, group)
+        _rm_s3_files(identifier, DELETE, namespace, group)
+        spark.read.parquet(_temp_s3key(identifier, DELETE, namespace))\
+            .write.mode("append").parquet(_s3key(namespace),
+                                          partitionBy=partition_columns,
+                                          compression="gzip")
 
 
 def _clean_temp_s3_files(identifier, manipulation, unamespace):
@@ -179,6 +235,19 @@ def _mv_s3_files(identifier, manipulation, unamespace, group):
     for from_key in list(BUCKET, temp_s3_key):
         to_key = "{}/{}".format(s3_key, "/".join(from_key.split("/")[start:]))
         retry(rename, (BUCKET, from_key, to_key))
+
+
+def _rm_s3_files(identifier, manipulation, unamespace, group):
+    # delete existed keys
+    source_keys = ["{}/{}".format(ROOT, unamespace)]
+    for c, v in zip(PARTITION_COLUMNS, group):
+        if v == None:
+            source_keys.append("{}=__HIVE_DEFAULT_PARTITION__".format(c))
+        else:
+            source_keys.append("{}={}".format(c, v))
+    prefix = "/".join(source_keys)
+    for key in list(BUCKET, prefix):
+        retry(delete, (BUCKET, key))
 
 
 def _merge_agg_value(aggregated, v):

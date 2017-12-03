@@ -11,7 +11,13 @@ from metastore.event_type import TRANSFORM
 
 
 def update():
-    pass
+    namespace = params['namespace']
+    manipulation = params['manipulation']
+    identifier = params['identifier']
+    events = S3.receive(spark, TRANSFORM, namespace, manipulation, identifier)
+    events.show(truncate=False)
+    for evt in events.collect():
+        _transform_for_update(evt, namespace, manipulation, identifier)
 
 
 def delete(spark, params):
@@ -33,6 +39,14 @@ def insert(spark, params):
     events.show(truncate=False)
     for evt in events.collect():
         _transform_for_insert(evt, namespace, manipulation, identifier)
+
+
+def _transform_for_update(evt, namespace, manipulation, identifier):
+    if evt.format == 'avro':
+        df = spark.read.format("com.databricks.spark.avro").load("s3a://{}".format(evt.path)).cache()
+    df.show(truncate=False)
+    # need transform here?
+    write(df, namespace, "dimension", "product", manipulation, identifier)
 
 
 def _transform_for_delete(evt, namespace, manipulation, identifier):
