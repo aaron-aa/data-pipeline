@@ -65,7 +65,7 @@ class RawDataFS(object):
                 retry(put, (self.BUCKET, s3key, open(f.name, "rb")))
         # 2. *** update meta ***
         # 3. *** trigger event***
-        S3.send(TRANSFORM, self.namespace, self.manipulation, self.identifier, self._key_for_event(), self.FORMAT)
+        S3.send(TRANSFORM, self.namespace, self.manipulation, self.identifier, [(self._key_for_event(), self.FORMAT)])
 
     def _key_postfix(self, partition_fields):
         """

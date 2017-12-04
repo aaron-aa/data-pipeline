@@ -10,56 +10,48 @@ from metastore.event_type import TRANSFORM
 # delete, update  lock
 
 
-def update():
+params_insert = {
+    "namespace": "ss.featured_story.v1",
+    "manipulation": "insert",
+    "identifier": "20171130175127"
+}
+
+params_delete = {
+    "namespace": "ss.featured_story.v1",
+    "manipulation": "delete",
+    "identifier": "20171130175127"
+}
+
+
+def main(spark, params):
     namespace = params['namespace']
     manipulation = params['manipulation']
     identifier = params['identifier']
     events = S3.receive(spark, TRANSFORM, namespace, manipulation, identifier)
     events.show(truncate=False)
     for evt in events.collect():
-        _transform_for_update(evt, namespace, manipulation, identifier)
+        _transform_for_update(evt)
 
 
-def delete(spark, params):
-    namespace = params['namespace']
-    manipulation = params['manipulation']
-    identifier = params['identifier']
-    events = S3.receive(spark, TRANSFORM, namespace, manipulation, identifier)
-    events.show(truncate=False)
-    for evt in events.collect():
-        _transform_for_delete(evt, namespace, manipulation, identifier)
-
-
-def insert(spark, params):
-    namespace = params['namespace']
-    manipulation = params['manipulation']
-    identifier = params['identifier']
-
-    events = S3.receive(spark, TRANSFORM, namespace, manipulation, identifier)
-    events.show(truncate=False)
-    for evt in events.collect():
-        _transform_for_insert(evt, namespace, manipulation, identifier)
-
-
-def _transform_for_update(evt, namespace, manipulation, identifier):
+def _transform_for_update(evt):
     if evt.format == 'avro':
         df = spark.read.format("com.databricks.spark.avro").load("s3a://{}".format(evt.path)).cache()
     df.show(truncate=False)
     # need transform here?
-    write(df, namespace, "dimension", "product", manipulation, identifier)
+    write(evt, df, "dimension", "product")
 
 
-def _transform_for_delete(evt, namespace, manipulation, identifier):
+def _transform_for_delete(evt):
     if evt.format == 'avro':
         df = spark.read.format("com.databricks.spark.avro").load("s3a://{}".format(evt.path)).cache()
     df.show(truncate=False)
-    write(df, namespace, "dimension", "product", manipulation, identifier)
+    write(evt, df, "dimension", "product")
 
 
-def _transform_for_insert(evt, namespace, manipulation, identifier):
+def _transform_for_insert(evt):
     if evt.format == 'avro':
         df = spark.read.format("com.databricks.spark.avro").load("s3a://{}".format(evt.path)).cache()
-
+    namespace, manipulation, identifier = (evt.namespace, evt.manipulation, evt.identifier)
     _parsed_udf = udf(_parsed_response, ArrayType(StringType()))
     dimension_df = df.select("featured_story_id", "data_granularity", "market_code", "device_code",
                              "country_code", "date", "url", "product_ids", "rank", "raw_data", "data_name")\
@@ -81,7 +73,7 @@ def _transform_for_insert(evt, namespace, manipulation, identifier):
         .drop('pos')\
         .cache()
     product_metrics_df.show(truncate=False)
-    write(product_metrics_df, namespace, "metrics", "product", manipulation, identifier)
+    write(evt, product_metrics_df, "metrics", "product")
 
 
 def _parsed_response(raw_data, featured_story_id):
@@ -107,32 +99,9 @@ def _parsed_response(raw_data, featured_story_id):
 def display_style(raw_data):
     return None
 
-
-def main(spark, params):
-    manipulation = params["manipulation"]
-    if manipulation == "insert":
-        insert(spark, params)
-
-
-params_insert = {
-    "namespace": "ss.featured_story.v1",
-    "manipulation": "insert",
-    "identifier": "20171130175127"
-}
-
-params_delete = {
-    "namespace": "ss.featured_story.v1",
-    "manipulation": "delete",
-    "identifier": "20171130175127"
-}
 #insert(spark, params_insert)
 # spark.read.parquet("s3a://aaron-s3-poc/unified/data_type=metrics").show()
 # spark.read.parquet("s3a://aaron-s3-poc/unified/data_type=dimensions").show()
-
-
-#delete(spark, params_delete)
-insert(spark, params)
-
 # spark.read.parquet("s3a://aaron-s3-poc/unified/data_type=metrics/primary_dimension=product/data_granularity=daily/date=2017-11-31/market_code=apple-store/device_code=iphone/country_code=US/data_name=featured_story/part-00001-0588d5ae-8768-4855-ac1f-cc3634bcf106.c000.snappy.parquet").show()
 
 #df = spark.read.option("mergeSchema", "true").parquet("s3a://aaron-s3-poc/unified/data_type=metrics").cache()

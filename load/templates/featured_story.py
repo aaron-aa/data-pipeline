@@ -1,6 +1,12 @@
 INTERFACE = {
-    "partition": [""],
-    "definition": {
+    "index": "int-reviews-$platform-$month",
+    "doc_type": "$platform",
+    "host": "INT_REVIEWS_ES_HOST",
+    "ssl": false,
+    "basic_auth": true,
+    "username": "INT_REVIEWS_AMR_ES_USER",
+    "password": "INT_REVIEWS_AMR_ES_PASSWORD",
+    "schema": {
         "template": "int-ss-featured-story-*",
         "settings": {
             "index": {
@@ -47,7 +53,7 @@ INTERFACE = {
                         }
                     }
                 },
-                "number_of_replicas": "1"
+                "number_of_replicas": "0"
             }
         },
         "mappings": {
@@ -63,13 +69,13 @@ INTERFACE = {
                     "enabled": false
                 },
                 "properties": {
-                    "story_id": {
+                    "featured_story_id": {
                         "index": true,
                         "store": false,
                         "type": "long",
                         "doc_values": true
                     },
-                    "featured_date": {
+                    "date": {
                         "index": true,
                         "store": false,
                         "type": "date",
@@ -82,7 +88,13 @@ INTERFACE = {
                         "type": "date",
                         "doc_values": true
                     },
-                    "device": {
+                    "market_code": {
+                        "index": true,
+                        "store": false,
+                        "type": "keyword",
+                        "doc_values": true
+                    },
+                    "device_code": {
                         "index": true,
                         "store": false,
                         "type": "keyword",
@@ -94,13 +106,13 @@ INTERFACE = {
                         "type": "text",
                         "doc_values": false
                     },
-                    "position": {
+                    "rank": {
                         "index": false,
                         "store": false,
                         "type": "keyword",
                         "doc_values": true
                     },
-                    "country": {
+                    "country_code": {
                         "index": true,
                         "store": false,
                         "type": "keyword",
@@ -160,7 +172,7 @@ INTERFACE = {
                         "type": "text",
                         "doc_values": false
                     },
-                    "app_ids": {
+                    "product_ids": {
                         "index": true,
                         "store": false,
                         "type": "text",

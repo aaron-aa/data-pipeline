@@ -74,7 +74,7 @@ class S3(object):
     })
 
     @classmethod
-    def send(cls, event_type, namespace, manipulation, identifier, data_path, data_format):
+    def send(cls, event_type, namespace, manipulation, identifier, data_path_format_pairs):
         # write s3 file
         s3key = "{root}/{event_type}/{namespace}/{manipulation}/{identifier}-{hashcode}.avro".format(
             root=cls.ROOT,
@@ -82,17 +82,19 @@ class S3(object):
             namespace=namespace,
             manipulation=manipulation,
             identifier=identifier,
-            hashcode=datasign(data_path)
+            hashcode=datasign(data_path_format_pairs)
         )
         with Temp(s3key) as f:
-            content = [{
-                "type": event_type,
-                "namespace": namespace,
-                "manipulation": manipulation,
-                "identifier": identifier,
-                "path": data_path,
-                "format": data_format
-            }]
+            content = []
+            for path_, format_ in data_path_format_pairs:
+                content.append({
+                    "type": event_type,
+                    "namespace": namespace,
+                    "manipulation": manipulation,
+                    "identifier": identifier,
+                    "path": path_,
+                    "format": format_
+                })
             write(cls.SCHEMA, f, content)
             retry(put, (cls.BUCKET, s3key, open(f.name, "rb")))
 

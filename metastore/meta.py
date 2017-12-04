@@ -1,6 +1,6 @@
 # Demo
 
-"ss.story.v1.schema"
+"ss.story.v1.schema": blob object
 "ss.story.v1.created"
 "ss.story.v1.lastupdated"
 "ss.story.v1.recordcount"
