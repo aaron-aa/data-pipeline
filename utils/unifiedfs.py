@@ -39,10 +39,11 @@ def write(evt, df, data_type, data_family):
     unamespace = _unified_namespace(data_type, data_family, evt.namespace)
     unified_df = globals()["_u" + evt.manipulation](df, unamespace, evt.identifier)
 
-    unified_paths = unified_df.groupby(*tuple(PARTITION_COLUMNS)).count().drop("count")\
-        .rdd.map(lambda r: BUCKET + "/" + _partition_path(unamespace, _partition_values(r))).collect()
-    path_format_pairs = [(evt.path, evt.format), (",".join(unified_paths), "parquet")]
-    _send_event(evt.namespace, evt.manipulation, evt.identifier, path_format_pairs)
+    if unified_df:
+        unified_paths = unified_df.groupby(*tuple(PARTITION_COLUMNS)).count().drop("count")\
+            .rdd.map(lambda r: BUCKET + "/" + _partition_path(unamespace, _partition_values(r))).collect()
+        path_format_pairs = [(evt.path, evt.format), (",".join(unified_paths), "parquet")]
+        _send_event(evt.namespace, evt.manipulation, evt.identifier, path_format_pairs)
 
 
 def _uinsert(df, unamespace, identifier):
@@ -89,13 +90,13 @@ def _uupdate(update_df, unamespace, identifier):
             matched_df = matched_df.where(col(c).isin(in_))
             unmatched_df = unmatched_df.where(~ col(c).isin(in_))
 
-        if matched_df is matched_df:
+        if matched_df is files_df:
             result_df = _complete_identifiers(files_df, update_identifier=identifier)
             result_df = _update_fields(result_df, target_fields, target_values)
         else:
             matched_df = _complete_identifiers(matched_df, update_identifier=identifier)
-            matched_df = _update_fields(matched_df, target_fields, target_values)
-            result_df = unmatched_df.union(matched_df)
+            matched_df = _update_fields(matched_df, target_fields, target_values).select(ordered_fields)
+            result_df = unmatched_df.select(ordered_fields).union(matched_df)
 
         if len(result_df.take(1)) == 0:
             # Nothing to update
@@ -104,18 +105,20 @@ def _uupdate(update_df, unamespace, identifier):
         result_df = result_df.select(ordered_fields)
         _clean_s3_temp_data_files(identifier, UPDATE, unamespace)
         result_df.write.mode("append").parquet(_temp_s3key(identifier, UPDATE, unamespace),
-                                               partitionBy=partition_columns,
+                                               partitionBy=PARTITION_COLUMNS,
                                                compression="gzip")
         _delete_s3_data_files(identifier, UPDATE, unamespace, group)
         partial_df = spark.read.parquet(_temp_s3key(identifier, UPDATE, unamespace)
                                         ).persist(StorageLevel.MEMORY_AND_DISK)
         partial_df.write.mode("append").parquet(_s3key(unamespace),
-                                                partitionBy=partition_columns,
+                                                partitionBy=PARTITION_COLUMNS,
                                                 compression="gzip")
 
         if not unified_df:
             unified_df = partial_df
         else:
+            unified_df.printSchema()
+            partial_df.printSchema()
             unified_df = unified_df.union(partial_df)
     return unified_df
 
@@ -151,11 +154,11 @@ def _udelete(where_df, unamespace, identifier):
             matched_df = matched_df.where(col(c).isin(in_))
             unmatched_df = unmatched_df.where(~ col(c).isin(in_))
 
-        if matched_df is matched_df:
+        if matched_df is files_df:
             result_df = _complete_identifiers(files_df, delete_identifier=identifier)
         else:
-            matched_df = _complete_identifiers(matched_df, delete_identifier=identifier)
-            result_df = unmatched_df.union(matched_df)
+            matched_df = _complete_identifiers(matched_df, delete_identifier=identifier).select(ordered_fields)
+            result_df = unmatched_df.select(ordered_fields).union(matched_df)
 
         if len(result_df.take(1)) == 0:
             # Nothing to delete
@@ -164,18 +167,20 @@ def _udelete(where_df, unamespace, identifier):
         result_df = result_df.select(ordered_fields)
         _clean_s3_temp_data_files(identifier, DELETE, unamespace)
         result_df.write.mode("append").parquet(_temp_s3key(identifier, DELETE, unamespace),
-                                               partitionBy=partition_columns,
+                                               partitionBy=PARTITION_COLUMNS,
                                                compression="gzip")
         _delete_s3_data_files(identifier, DELETE, unamespace, group)
         partial_df = spark.read.parquet(_temp_s3key(identifier, DELETE, unamespace)
                                         ).persist(StorageLevel.MEMORY_AND_DISK)
         partial_df.write.mode("append").parquet(_s3key(unamespace),
-                                                partitionBy=partition_columns,
+                                                partitionBy=PARTITION_COLUMNS,
                                                 compression="gzip")
 
         if not unified_df:
             unified_df = partial_df
         else:
+            unified_df.printSchema()
+            partial_df.printSchema()
             unified_df = unified_df.union(partial_df)
     return unified_df
 
@@ -197,6 +202,16 @@ def _complete_dimensions(df):
     return df
 
 
+def _concat_update_ids(update_ids, update_id):
+    update_ids = []
+    if update_id:
+        update_ids.append(update_id)
+    return update_ids
+
+
+_concat_update_ids_udf = udf(_concat_update_ids, ArrayType(LongType()))
+
+
 def _complete_identifiers(df, insert_identifier=None, delete_identifier=None, update_identifier=None):
     # no way to insert or delete same record many times
     existed_columns = set([x[0] for x in df.dtypes])
@@ -204,19 +219,27 @@ def _complete_identifiers(df, insert_identifier=None, delete_identifier=None, up
         # insert happens firstly, so this check works well
         df = df.withColumn('insert_id', lit(insert_identifier).cast(LongType()))
 
-    for (identifier, identifier_name) in [(delete_identifier, 'delete_id'),
-                                          (update_identifier, 'update_id')]:
-        if not identifier and identifier_name not in existed_columns:
-            # add default null, because this value is always used for judge currrent row is deleted or updated
-            df = df.withColumn(identifier_name, lit(None).cast(LongType()))
+    if not delete_identifier and 'delete_id' not in existed_columns:
+        # add default null, because this value is always used for judging currrent row is deleted
+        df = df.withColumn('delete_id', lit(None).cast(LongType()))
+    if delete_identifier and 'delete_id' in existed_columns:
+        # really delete happened, and we only record first delete time
+        temp_column = '_delete_id'
+        df = df.withColumn(temp_column,
+                           when(col('delete_id').isNull(), lit(delete_identifier).cast(LongType())).otherwise(col('delete_id')))\
+            .drop('delete_id')\
+            .withColumnRenamed(temp_column, 'delete_id')
 
-        if identifier and identifier_name in existed_columns:
-            # really delete happened, and we only record first delete time
-            temp = '_{}'.format(identifier_name)
-            df = df.withColumn(temp,
-                               when(col(identifier_name).isNull(), lit(identifier).cast(LongType())).otherwise(col(identifier_name)))\
-                .drop(identifier_name)\
-                .withColumnRenamed(temp, identifier_name)
+    if not update_identifier and 'update_ids' not in existed_columns:
+        # add default null, because this value is always used for judging currrent row is updated
+        df = df.withColumn('update_ids',
+                           _concat_update_ids_udf(lit(None).cast(LongType()), lit(None).cast(LongType())))
+    if update_identifier and 'update_ids' in existed_columns:
+        temp_column = '_update_ids'
+        df = df.withColumn(temp_column,
+                           _concat_update_ids_udf("update_ids", lit(update_identifier).cast(LongType())))\
+            .drop("update_ids")\
+            .withColumnRenamed(temp_column, "update_ids")
     return df
 
 

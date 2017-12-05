@@ -140,8 +140,8 @@ INTERFACE = {
                             "type": "record",
                             "name": "update.value",
                             "fields": [
-                                {"name": "country_code", "type": "string"},
-                                {"name": "date", "type": "string"},
+                                {"name": "country_code", "type": ["null", "string"]},
+                                {"name": "date", "type": ["null", "string"]},
                                 {"name": "url", "type": ["null", "string"]},
                                 {"name": "rank", "type": ["null", "int"]},
                                 {"name": "svg", "type": ["null", "string"]},
@@ -167,33 +167,6 @@ INTERFACE = {
                     }
                 ]
             })
-        },
-        "refresh": {
-            "schema": create({
-                "namespace": "ss.featured_story.v1",
-                "type": "record",
-                "name": "FeaturedStoryRefresh",
-                "fields": [
-                    DATA_NAME,
-                    DATA_GRANULARITY,
-                    DEVICE_CODE,
-                    MARKET_CODE,
-                    {"name": "country_code", "type": "string"},
-                    {"name": "date", "type": "string"},
-                    {"name": "featured_story_id", "type": "long"},
-                    {"name": "url", "type": "string"},
-                    {"name": "rank", "type": "int"},
-                    {"name": "svg", "type": "string"},
-                    {"name": "raw_data", "type": "string"},
-                    {"name": "creative_urls", "type": ["null", {"type": "array", "items": "string"}]},
-                    {"name": "product_ids", "type": ["null", {"type": "array", "items": "long"}]},
-                    {"name": "label", "type": ["null", "string"]},
-                    {"name": "head", "type": ["null", "string"]},
-                    {"name": "description", "type": ["null", "string"]},
-                    {"name": "content", "type": ["null", "string"]},
-                    {"name": "display_style", "type": ["null", {"type": "map", "values": "string"}]}
-                ]
-            })
         }
     }
 }
@@ -212,7 +185,7 @@ UPDATE_DUMMY_DATA = [
         "set": {
             "fields": ["rank"]
         },
-        "value":{
+        "value": {
             "rank": 3
         }
     },
@@ -230,7 +203,9 @@ UPDATE_DUMMY_DATA = [
             "fields": ["rank", "country_code", "date"]
         },
         "value":{
-            "rank": 2, "country_code": "US", "date": "2017-11-30"
+            "rank": 2,
+            "country_code": "US",
+            "date": "2017-11-30"
         }
     }
 ]

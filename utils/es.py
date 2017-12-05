@@ -11,22 +11,67 @@ from pyspark.sql import Row
 PARALLELISM = 10
 
 
+class _CompressedConnection(Urllib3HttpConnection):
+
+    def __init__(self, *args, **kwargs):
+        super(_CompressedConnection, self).__init__(*args, **kwargs)
+        self.headers.update(urllib3.make_headers(accept_encoding=True))
+
+
+def connection(schema, timeout=10):
+    conn_config = {}
+    conn_config['hosts'] = getattr(settings, schema['host']).split(',')
+    conn_config['connection_class'] = _CompressedConnection
+    if schema.get('es.net.basic_auth', False):
+        conn_config['http_auth'] = (
+            getattr(settings, schema['es.net.http.auth.user']),
+            getattr(settings, schema['es.net.http.auth.pass'])
+        )
+    conn_conf["timeout"] = timeout
+    return Elasticsearch(**conn_conf)
+
+
+def del_documents(query_, docs_per_batch=3000, request_timeout=90):
+    from common.python.aso_utils import chunks
+
+    index_name = _latest_index(definition.index_name)
+    doc_type = definition.doc_type
+    doc_id_query = definition.doc_id_query
+    schema_name = definition.schema_name
+
+    es = _es(schema_name)
+    hits = helpers.scan(es, query=doc_id_query, index=index_name, doc_type=doc_type,
+                        size=docs_per_batch, request_timeout=request_timeout, ignore_unavailable=True)
+
+    for chunk in chunks(hits, docs_per_batch):
+        try:
+            actions = [{'_op_type': 'delete',
+                        '_index': index_name,
+                        '_type': doc_type,
+                        '_id': hit["_id"]
+                        } for hit in chunk]
+            helpers.bulk(es, actions, chunk_size=docs_per_batch, request_timeout=request_timeout)
+        except helpers.ElasticsearchException as e:
+            if isinstance(e, helpers.BulkIndexError):
+                # BulkIndexError: (u'10 document(s) failed to index.', [{u'delete': {u'status': 404, u'_type': u'1',
+                # u'_shards': {u'successful': 2, u'failed': 0, u'total': 2}, u'_index': u'aso-kpi-ts-fi-201610',
+                # u'_version': 6, u'found': False, u'_id': u'AVfC2F7BHqX2ok1atK9Q'}},...]
+                non_404s = filter(lambda x: x.get('delete', {}).get('status') != 404, e.errors)
+                # Ignore 404
+                if non_404s:
+                    raise e
+            else:
+                raise e
+        finally:
+            es.indices.refresh(index_name)
+
+
 def _month(day, params):
     return "".join(day.split("-")[:2])
 
 
 def _year(day, params):
     return day.split("-")[0]
-
-
-def _es(schema_name="ASO_TRAFFIC_SHARE_ES_O", timeout=10):
-    from workflow.module.utils import get_es_connection_config
-    from workflow.conf import settings
-
-    schema = _schema(schema_name)
-    conn_conf = get_es_connection_config(schema, 'es-py', settings)
-    conn_conf["timeout"] = timeout
-    return Elasticsearch(**conn_conf)
 
 
 def _alias(idx):
@@ -272,68 +317,6 @@ __________________________________________
               ||----w |
               ||     ||
 """
-
-
-def _definitions_of_existed_docs(day, devices, schema_name, params):
-    from workflow.module.utils import replace_params
-
-    schema = _schema(schema_name)
-    index_pattern = replace_params(schema['table'], params)
-    indices = _aliases(schema_name, index_pattern, params)
-
-    doc_type = replace_params(schema['doc_type'], params)
-
-    doc_id_queries = [
-        {
-            "fields": [],
-            "query": {
-                "bool": {
-                    "filter": [
-                        {"term": {"day": day}},
-                        {"term": {"device": device}}
-                    ]
-                }
-            }
-        }
-        for device in devices]
-
-    return [Row(schema_name=schema_name, index_name=index_name, doc_type=doc_type, doc_id_query=doc_id_query)
-            for index_name, doc_id_query in product(indices, doc_id_queries)]
-
-
-def _del_doc(definition, docs_per_batch=3000, request_timeout=90):
-    from common.python.aso_utils import chunks
-
-    index_name = _latest_index(definition.index_name)
-    doc_type = definition.doc_type
-    doc_id_query = definition.doc_id_query
-    schema_name = definition.schema_name
-
-    es = _es(schema_name)
-    hits = helpers.scan(es, query=doc_id_query, index=index_name, doc_type=doc_type,
-                        size=docs_per_batch, request_timeout=request_timeout, ignore_unavailable=True)
-
-    for chunk in chunks(hits, docs_per_batch):
-        try:
-            actions = [{'_op_type': 'delete',
-                        '_index': index_name,
-                        '_type': doc_type,
-                        '_id': hit["_id"]
-                        } for hit in chunk]
-            helpers.bulk(es, actions, chunk_size=docs_per_batch, request_timeout=request_timeout)
-        except helpers.ElasticsearchException as e:
-            if isinstance(e, helpers.BulkIndexError):
-                # BulkIndexError: (u'10 document(s) failed to index.', [{u'delete': {u'status': 404, u'_type': u'1',
-                # u'_shards': {u'successful': 2, u'failed': 0, u'total': 2}, u'_index': u'aso-kpi-ts-fi-201610',
-                # u'_version': 6, u'found': False, u'_id': u'AVfC2F7BHqX2ok1atK9Q'}},...]
-                non_404s = filter(lambda x: x.get('delete', {}).get('status') != 404, e.errors)
-                # Ignore 404
-                if non_404s:
-                    raise e
-            else:
-                raise e
-        finally:
-            es.indices.refresh(index_name)
 
 
 def _del_existed_docs(sc, schema_name, day, platform_id, params):

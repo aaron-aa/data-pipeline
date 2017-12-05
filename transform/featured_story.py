@@ -30,7 +30,7 @@ def main(spark, params):
     events = S3.receive(spark, TRANSFORM, namespace, manipulation, identifier)
     events.show(truncate=False)
     for evt in events.collect():
-        _transform_for_update(evt)
+        globals()["_transform_for_" + manipulation](evt)
 
 
 def _transform_for_update(evt):
@@ -62,7 +62,7 @@ def _transform_for_insert(evt):
         .drop("raw_data")\
         .drop("parsed_result").cache()
     dimension_df.show(truncate=False)
-    write(dimension_df, namespace, "dimension", "product", manipulation, identifier)
+    write(evt, dimension_df, "dimension", "product")
 
     product_metrics_df = dimension_df.select("featured_story_id", "data_granularity", "market_code",
                                              "device_code", "country_code", "date", "product_ids", "rank", posexplode("product_ids"), "data_name")\
